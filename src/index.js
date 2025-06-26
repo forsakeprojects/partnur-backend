@@ -24,7 +24,10 @@ app.get('/health', (req, res) => {
 // Main chat endpoint - This is where the magic happens!
 app.post('/chat', async (req, res) => {
     try {
-        const { mobile_number, message, session_id } = req.body;
+        // Accept parameters from either body OR query string
+const mobile_number = req.body.mobile_number || req.query.mobile_number;
+const message = req.body.message || req.query.message;
+const session_id = req.body.session_id || req.query.session_id;
         
         if (!mobile_number || !message) {
             return res.status(400).json({ 
