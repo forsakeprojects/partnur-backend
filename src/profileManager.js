@@ -161,6 +161,107 @@ class ProfileManager {
             // Don't throw - logging shouldn't break the main flow
         }
     }
+
+    // Get conversation analytics
+    async getAnalytics(user_id, days = 30) {
+        try {
+            const cutoffDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+            
+            const { data, error } = await this.supabase
+                .from('conversation_logs')
+                .select('*')
+                .eq('user_id', user_id)
+                .gte('created_at', cutoffDate);
+            
+            if (error) throw error;
+            
+            const totalConversations = data?.length || 0;
+            const avgResponseTime = totalConversations > 0 
+                ? data.reduce((sum, log) => sum + (log.response_time_ms || 0), 0) / totalConversations
+                : 0;
+            
+            // Extract topics from conversation data
+            const topics = data?.map(log => log.extracted_info).filter(Boolean) || [];
+            const topicCounts = {};
+            topics.forEach(info => {
+                if (info.business_type) topicCounts[info.business_type] = (topicCounts[info.business_type] || 0) + 1;
+                if (info.location_city) topicCounts[info.location_city] = (topicCounts[info.location_city] || 0) + 1;
+            });
+            
+            return {
+                total_conversations: totalConversations,
+                avg_response_time_ms: Math.round(avgResponseTime),
+                topics: topicCounts,
+                recent_activity: data?.slice(0, 5) || []
+            };
+        } catch (error) {
+            console.error('Error getting analytics:', error);
+            return {
+                total_conversations: 0,
+                avg_response_time_ms: 0,
+                topics: {},
+                recent_activity: []
+            };
+        }
+    }
+
+    // Get profile completion trends
+    async getProfileCompletionTrends(limit = 100) {
+        try {
+            const { data, error } = await this.supabase
+                .from('user_profiles')
+                .select('profile_completion_score, created_at, business_type, location_city')
+                .order('created_at', { ascending: false })
+                .limit(limit);
+            
+            if (error) throw error;
+            
+            return data || [];
+        } catch (error) {
+            console.error('Error getting profile trends:', error);
+            return [];
+        }
+    }
+
+    // Get user activity summary
+    async getUserActivitySummary(user_id) {
+        try {
+            const profile = await this.getUserProfile(await this.getUserByUserId(user_id));
+            const analytics = await this.getAnalytics(user_id, 30);
+            
+            return {
+                profile_completion: this.calculateProfileCompletion(profile),
+                last_active: profile?.updated_at,
+                conversation_count: analytics.total_conversations,
+                avg_response_time: analytics.avg_response_time_ms,
+                business_info: {
+                    type: profile?.business_type,
+                    location: profile?.location_city,
+                    revenue: profile?.monthly_revenue
+                }
+            };
+        } catch (error) {
+            console.error('Error getting user activity summary:', error);
+            return null;
+        }
+    }
+
+    // Helper method to get user by user_id
+    async getUserByUserId(user_id) {
+        try {
+            const { data, error } = await this.supabase
+                .from('user_profiles')
+                .select('mobile_number')
+                .eq('user_id', user_id)
+                .single();
+            
+            if (error) throw error;
+            return data?.mobile_number;
+        } catch (error) {
+            console.error('Error getting user by ID:', error);
+            return null;
+        }
+    }
 }
 
 module.exports = ProfileManager;
