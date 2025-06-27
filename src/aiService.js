@@ -155,21 +155,6 @@ ADVICE STYLE:
 Respond in a conversational, helpful manner. If you need more information to give better advice, ask specific questions.`;
     }
 
-    // Get relevant context used in response (for logging)
-    getRelevantContext(profile) {
-        const relevant = {};
-        const importantFields = ['business_type', 'location_city', 'monthly_revenue', 
-                               'peak_hours', 'challenges', 'goals', 'platforms_used'];
-        
-        importantFields.forEach(field => {
-            if (profile[field]) {
-                relevant[field] = profile[field];
-            }
-        });
-        
-        return relevant;
-    }
-
     // Generate follow-up suggestions
     generateFollowUpSuggestions(message, profile) {
         const suggestions = [];
@@ -186,6 +171,190 @@ Respond in a conversational, helpful manner. If you need more information to giv
         }
         
         return suggestions.slice(0, 2); // Limit to 2 suggestions
+    }
+
+    // Generate smart follow-up questions
+    generateSmartQuestions(profile) {
+        const questions = [];
+        
+        // Basic business info questions
+        if (!profile.business_type) {
+            questions.push("What type of business do you run?");
+        }
+        if (!profile.location_city) {
+            questions.push("Which city is your business located in?");
+        }
+        if (!profile.monthly_revenue) {
+            questions.push("What's your approximate monthly revenue range?");
+        }
+        
+        // Operational questions
+        if (!profile.peak_hours || profile.peak_hours.length === 0) {
+            questions.push("What are your busiest hours of the day?");
+        }
+        if (!profile.staff_count) {
+            questions.push("How many people work in your business?");
+        }
+        if (!profile.inventory_source) {
+            questions.push("Where do you source your products/inventory from?");
+        }
+        
+        // Challenges and goals
+        if (!profile.challenges || profile.challenges.length === 0) {
+            questions.push("What's your biggest business challenge right now?");
+        }
+        if (!profile.goals || profile.goals.length === 0) {
+            questions.push("What are your main business goals for this year?");
+        }
+        
+        // Business-specific questions
+        if (profile.business_type === 'restaurant' && !profile.platforms_used?.includes('Zomato')) {
+            questions.push("Are you listed on food delivery platforms like Zomato or Swiggy?");
+        }
+        if (profile.business_type === 'salon' && !profile.platforms_used?.includes('Instagram')) {
+            questions.push("Do you use social media like Instagram to showcase your work?");
+        }
+        if (profile.business_type === 'retail' && !profile.payment_methods?.includes('UPI')) {
+            questions.push("Do you accept digital payments like UPI or cards?");
+        }
+        
+        // Return only 1-2 questions to avoid overwhelming
+        return questions.slice(0, 2);
+    }
+
+    // Get seasonal context for advice
+    getSeasonalContext() {
+        const now = new Date();
+        const month = now.getMonth() + 1; // JavaScript months are 0-indexed
+        
+        if (month === 10 || month === 11) {
+            return "With Diwali and festive season approaching, this is a great time to boost sales. ";
+        } else if (month === 8) {
+            return "Raksha Bandhan season is here - consider special offers for siblings. ";
+        } else if (month === 3 || month === 4) {
+            return "With Holi and spring season, it's time to refresh your business approach. ";
+        } else if (month === 12 || month === 1) {
+            return "New Year is a perfect time for new beginnings and planning ahead. ";
+        } else if (month === 6 || month === 7) {
+            return "Monsoon season can affect business - plan accordingly. ";
+        } else if (month === 5) {
+            return "Summer season - consider how weather affects your business. ";
+        }
+        
+        return "";
+    }
+
+    // Get relevant context based on user profile
+    getRelevantContext(profile) {
+        const context = [];
+        
+        if (profile.business_type) context.push(`Business: ${profile.business_type}`);
+        if (profile.location_city) context.push(`Location: ${profile.location_city}`);
+        if (profile.monthly_revenue) context.push(`Revenue: ${profile.monthly_revenue}`);
+        if (profile.challenges?.length > 0) context.push(`Challenges: ${profile.challenges.join(', ')}`);
+        
+        return context.join(' | ');
+    }
+
+    // Enhanced response generation with smart questions and seasonal context
+    async generateEnhancedResponse(message, userProfile) {
+        try {
+            const seasonalContext = this.getSeasonalContext();
+            const smartQuestions = this.generateSmartQuestions(userProfile);
+            const systemPrompt = this.buildEnhancedSystemPrompt(userProfile, seasonalContext);
+            
+            const response = await this.openai.chat.completions.create({
+                model: "gpt-4",
+                messages: [
+                    { role: "system", content: systemPrompt },
+                    { role: "user", content: message }
+                ],
+                temperature: 0.7,
+                max_tokens: 500
+            });
+
+            return {
+                content: response.choices[0].message.content,
+                contextUsed: this.getRelevantContext(userProfile),
+                suggestions: smartQuestions,
+                seasonalTip: seasonalContext ? seasonalContext.trim() : null
+            };
+        } catch (error) {
+            console.error('Error generating enhanced response:', error);
+            return this.generateResponse(message, userProfile); // Fallback to basic response
+        }
+    }
+
+    // Enhanced system prompt with seasonal awareness
+    buildEnhancedSystemPrompt(profile, seasonalContext) {
+        const basePrompt = this.buildSystemPrompt(profile);
+        
+        const enhancement = `
+
+SEASONAL AWARENESS:
+${seasonalContext}Consider seasonal factors, festivals, and timing in your advice.
+
+SMART QUESTIONING:
+Always end responses with thoughtful follow-up questions to gather missing business information.
+
+BUSINESS INTELLIGENCE:
+Provide specific, actionable advice based on the user's business type, location, and current challenges.
+
+RESPONSE STYLE:
+- Keep responses conversational and encouraging
+- Use "Hinglish" phrases naturally where appropriate
+- Focus on practical, implementable advice
+- Ask only 1-2 follow-up questions at a time`;
+
+        return basePrompt + enhancement;
+    }
+
+    // Get business insights based on profile completeness
+    getBusinessInsights(profile) {
+        const insights = [];
+        const completionScore = this.calculateProfileCompletion ? this.calculateProfileCompletion(profile) : 50;
+        
+        if (completionScore < 30) {
+            insights.push("Complete your profile to get personalized business advice");
+        }
+        
+        if (profile.business_type === 'restaurant' && !profile.platforms_used?.includes('Zomato')) {
+            insights.push("Consider joining food delivery platforms to increase reach");
+        }
+        
+        if (profile.monthly_revenue && profile.monthly_revenue.includes('Below') && !profile.goals?.includes('increase revenue')) {
+            insights.push("Setting revenue growth goals could help focus your efforts");
+        }
+        
+        return insights;
+    }
+
+    // Generate contextual business tips
+    generateContextualTips(profile) {
+        const tips = [];
+        const businessType = profile.business_type?.toLowerCase();
+        const location = profile.location_city?.toLowerCase();
+        
+        // Business-specific tips
+        if (businessType === 'restaurant') {
+            tips.push("Focus on food quality and customer service for repeat customers");
+            if (!profile.platforms_used?.includes('Instagram')) {
+                tips.push("Share food photos on Instagram to attract customers");
+            }
+        } else if (businessType === 'salon') {
+            tips.push("Before/after photos showcase your skills effectively");
+            tips.push("Building client relationships leads to regular appointments");
+        } else if (businessType === 'retail') {
+            tips.push("Display products attractively to increase impulse purchases");
+            tips.push("Track inventory to avoid stockouts during peak times");
+        }
+        
+        // Location-specific tips
+        if (location?.includes('delhi') || location?.includes('mumbai')) {
+            tips.push("Consider digital marketing for metro city competition");
+        }
+        
+        return tips.slice(0, 2); // Return max 2 tips
     }
 }
 
