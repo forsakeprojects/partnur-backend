@@ -8,13 +8,39 @@ const AIService = require('./aiService');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware
-app.use(cors());
-app.use(express.json());
+// Enhanced CORS configuration
+app.use(cors({
+    origin: [
+        'http://localhost:3000',
+        'http://127.0.0.1:5500',
+        'http://localhost:5500',
+        'https://partnur-backend.onrender.com',
+        '*' // Allow all origins for testing (remove in production)
+    ],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: false
+}));
 
-// Add timestamp middleware (MOVED TO CORRECT POSITION)
+// Handle preflight requests
+app.options('*', cors());
+
+// Middleware
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true }));
+
+// Add timestamp middleware
 app.use((req, res, next) => {
     req.startTime = Date.now();
+    console.log(`📨 ${req.method} ${req.path} from ${req.ip}`);
+    next();
+});
+
+// Add response headers
+app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
     next();
 });
 
@@ -24,12 +50,36 @@ const aiService = new AIService();
 
 // Health check endpoint
 app.get('/health', (req, res) => {
-    res.json({ status: 'Partnur Backend is running!', timestamp: new Date() });
+    res.json({ 
+        status: 'Partnur Backend is running!', 
+        timestamp: new Date(),
+        cors: 'enabled',
+        endpoints: [
+            'GET /health',
+            'POST /chat',
+            'POST /chat/enhanced',
+            'GET /profile/:mobile_number',
+            'GET /analytics/:mobile_number',
+            'GET /trends'
+        ]
+    });
+});
+
+// Test endpoint for debugging
+app.get('/test', (req, res) => {
+    res.json({
+        message: 'Test endpoint working!',
+        method: req.method,
+        headers: req.headers,
+        timestamp: new Date()
+    });
 });
 
 // Main chat endpoint - This is where the magic happens!
 app.post('/chat', async (req, res) => {
     try {
+        console.log('📨 Chat request body:', req.body);
+        
         // Accept parameters from either body OR query string
         const mobile_number = req.body.mobile_number || req.query.mobile_number;
         const message = req.body.message || req.query.message;
@@ -37,7 +87,8 @@ app.post('/chat', async (req, res) => {
         
         if (!mobile_number || !message) {
             return res.status(400).json({ 
-                error: 'mobile_number and message are required' 
+                error: 'mobile_number and message are required',
+                received: { mobile_number, message, session_id }
             });
         }
 
@@ -79,6 +130,7 @@ app.post('/chat', async (req, res) => {
         const completionScore = profileManager.calculateProfileCompletion(userProfile);
         
         res.json({
+            success: true,
             response: aiResponse.content,
             profile_completion: completionScore,
             extracted_info: extractedInfo,
@@ -107,6 +159,7 @@ app.get('/profile/:mobile_number', async (req, res) => {
         const completionScore = profileManager.calculateProfileCompletion(profile);
         
         res.json({
+            success: true,
             profile: profile,
             completion_score: completionScore
         });
@@ -198,6 +251,8 @@ app.post('/chat/enhanced', async (req, res) => {
     const startTime = Date.now();
     
     try {
+        console.log('📨 Enhanced chat request:', req.body);
+        
         const mobile_number = req.body.mobile_number || req.query.mobile_number;
         const message = req.body.message || req.query.message;
         const session_id = req.body.session_id || req.query.session_id;
@@ -209,7 +264,8 @@ app.post('/chat/enhanced', async (req, res) => {
                     mobile_number: '+919876543210',
                     message: 'How can I increase my restaurant sales?',
                     session_id: 'optional-session-id'
-                }
+                },
+                received: { mobile_number, message, session_id }
             });
         }
 
@@ -295,4 +351,5 @@ app.listen(PORT, () => {
     console.log(`👤 Profile endpoint: http://localhost:${PORT}/profile/:mobile_number`);
     console.log(`📊 Analytics endpoint: http://localhost:${PORT}/analytics/:mobile_number`);
     console.log(`📈 Trends endpoint: http://localhost:${PORT}/trends`);
+    console.log(`🔧 Test endpoint: http://localhost:${PORT}/test`);
 });
